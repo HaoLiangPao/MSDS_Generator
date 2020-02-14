@@ -14,10 +14,14 @@ if "my_MSDS" not in dblist:
 collist = mydb.list_collection_names()
 if "GHS_Classification" not in collist:
     GHS = mydb["GHS_Classification"]
-if "Precautions_and_Storages" not in collist:
-    Precaution = mydb["Precautions_and_Storages"]
+if "HazardStatement" not in collist:
+    HazardStatement = mydb["HazardStatement"]
 if "EU_Precautions" not in collist:
-    Precaution = mydb["EU_Precautions"]
+    EU_Precaution = mydb["EU_Precautions"]
+if "AUS_Precautions" not in collist:
+    AUS_Precaution = mydb["AUS_Precautions"]
+if "Precaution_Procedure" not in collist:
+    Precaution_Procedure = mydb["Precaution_Procedure"]
 
 # Set up for webpage connection
 url = "https://pubchem.ncbi.nlm.nih.gov/ghs/#_pict"
@@ -26,6 +30,21 @@ res = requests.get(url, headers=headers)
 # decorate the program as a browser
 res.encoding = "GB2312"
 soup = BeautifulSoup(res.text,"html.parser")
+
+### help functions
+def code_Procedure(table,columnNameList,collection,row):
+    content = table[0].find_all("tr")
+    while row < len(content):
+        contentRow = content[row].find_all("td")
+        index = 0
+        prep = {}
+        while index < len(contentRow):
+            item = contentRow[index].decode().replace("<td>","").replace("</td>","")
+            prep[columnNameList[index]] = item
+            index += 1
+        if collection.find(prep).count() == 0: # no replicate data captured
+            collection.insert_one(prep)
+        row += 1
 
 # 1. hazardous classes 
 # get the pictogramTable as a reference for hazardous classes
@@ -48,22 +67,9 @@ for pict in picts:
         GHS.insert_one({classH : imgSrc})
 
 # 2.a Handling Procedures and Storage Methods
-
-
 HCodeTable = soup.find_all(id="hcode")
 columnName = HCodeTable[0].find_all("th")
 columnNameList = []
-# Code
-# Hazard Statements
-# Hazard Class
-# Category
-# Pictogram
-# Signal Word
-# Precautionary Statements P-Codes contains
-    # Prevention
-    # Response
-    # Storage
-    # Disposal
 # collect the columnName for each category
 for column in columnName:
     columnStr = column.decode()
@@ -72,58 +78,21 @@ for column in columnName:
     if column != "Precautionary Statements P-Codes contains":
         columnNameList.append(column)
 # the actual content start at the third row
-content = HCodeTable[0].find_all("tr")
-row = 2
-while row < len(content):
-    contentRow = content[row].find_all("td")
-    index = 0
-    chemical = {}
-    while index < len(contentRow):
-        item = contentRow[index].decode().replace("<td>","").replace("</td>","")
-        # print("the added content is:")
-        # print({columnNameList[index]:item})
-        # print("\n")
-        chemical[columnNameList[index]] = item
-        index += 1
-    if Precaution.find(chemical).count() == 0: # no replicate data captured
-        Precaution.insert_one(chemical)
-    row += 1
+code_Procedure(HCodeTable, columnNameList, HazardStatement, 2)
 
 
 # 2.b EU code procedures
-
 EUCodeTable = soup.find_all(id="eucode")
-columnName = EUCodeTable[0].find_all("th")
 columnNameList = ["Code","Hazard"]
+code_Procedure(EUCodeTable, columnNameList, EU_Precaution, 0)
 
+# 2.c AUS code procedures
+AUSCodeTable = soup.find_all(id="aucode")
+columnNameList = ["Code","Hazard"]
+code_Procedure(AUSCodeTable, columnNameList, AUS_Precaution, 0)
 
+# 3. Precaution Processes
+PreTable = soup.find_all(id="pcode")
+columnNameList = ["Code","Precaution"]
+code_Procedure(PreTable, columnNameList, Precaution_Procedure, 0)
 
-
-
-### help functions
-def getContent(table, row):
-    columnName = table[0].find_all("th")
-    columnNameList = []
-    # collect the columnName for each category
-    for column in columnName:
-        columnStr = column.decode()
-        column = re.search(">(.*?)</th>",columnStr)[0].replace("</th>","").replace(">","").strip()
-        print(column)
-        if column != "Precautionary Statements P-Codes contains":
-            columnNameList.append(column)
-    # the actual content start at row(th) row
-    content = HCodeTable[0].find_all("tr")
-    while row < len(content):
-        contentRow = content[row].find_all("td")
-        index = 0
-        chemical = {}
-        while index < len(contentRow):
-            item = contentRow[index].decode().replace("<td>","").replace("</td>","")
-            # print("the added content is:")
-            # print({columnNameList[index]:item})
-            # print("\n")
-            chemical[columnNameList[index]] = item
-            index += 1
-        if Precaution.find(chemical).count() == 0: # no replicate data captured
-            Precaution.insert_one(chemical)
-        row += 1
