@@ -1,4 +1,5 @@
 import logging
+import re
 import traceback
 import time
 
@@ -35,7 +36,7 @@ def xpath_search(driver, url, xpath):
     # some webpage elements may not shown at the time it loads.
     # we will wait until it loaded up to 10 seconds
     try:
-        element = WebDriverWait(driver, 10).until(EC.presence_of_all_elements_located((By.XPATH, xpath)))
+        element = WebDriverWait(driver, 5).until(EC.presence_of_all_elements_located((By.XPATH, xpath)))
         return element
     except Exception as e:
         logging.error(traceback.format_exc())
@@ -44,15 +45,33 @@ def xpath_search(driver, url, xpath):
 def get_attributes(browser, url, xpath):
     try:
         element = xpath_search(browser, url, xpath)[0]
-        if element.text.find("\n"):
-            attribute = element.text[:element.text.find("\n")]
+        # check if the attribute is an image
+        if element.get_attribute("src"):
+            attribute = element.get_attribute("src")
+        # normal case: check if the element is text
         else:
-            attribute = element.text
+            if element.text.find("\n"):
+                attribute = element.text[:element.text.find("\n")]
+            else:
+                attribute = element.text
         return attribute
     except Exception as e:
         logging.error(traceback.format_exc())
-        print("The attribute does not existed.")
+        print("The attribute corresponding to this xpath does not existed.", xpath)
         return None
+
+
+def get_physical_prop(browser, url, xpath):
+    result = get_attributes(browser, url, xpath)
+    print("physical property is:", xpath)
+    print(result)
+    # if no information available at all, return null
+    if result is not None:
+        # if this compound has multiple info sources, choose the first one
+        if re.search("(.*)[Ss]howing(.*)of(.*)", result):
+            xpath = xpath[:-2] + "2" + xpath[-2 + 1:]
+            result = get_attributes(browser, url, xpath)
+    return result
 
 
 def chemical_list(browser, url):
@@ -99,25 +118,29 @@ def generate_chemical_profile(identifier):
     href = chemical_list(chrome, urlFinal)  # get the webpage which contains the information about given chemical
     # 2. get the corresponding information and store them into the database
     # 2.1 get physical properties
+    Name_xpath = "//h1[@class='m-zero p-zero']"
+    chemical["Name"] = get_attributes(chrome, href, Name_xpath)  # Common name
     MW_xpath = "//p[contains(text(),'g/mol')]"
     chemical["MW"] = get_attributes(chrome, href, MW_xpath)  # Molecular Weight
     ordor_xpath = "//section[@id='Odor']//div[@class='section-content-item']"
     chemical["ordor"] = get_attributes(chrome, href, ordor_xpath)  # Ordor
-    BP_xpath = "//section[@id='Boiling-Point']//div[@class='section-content']//div[2]"
-    chemical["BP"] = get_attributes(chrome, href, BP_xpath)  # boiling point
-    MP_xpath = "//section[@id='Melting-Point']//div[@class='section-content']//div[2]"
-    chemical["MP"] = get_attributes(chrome, href, MP_xpath)  # melting point
-    solu_xpath = "//section[@id='Solubility']//div[@class='section-content']//div[2]"
-    chemical["solubility"] = get_attributes(chrome, href, solu_xpath)  # solubility
-    dens_xpath = "//section[@id='Density']//div[@class='section-content']//div[2]"
-    chemical["density"] = get_attributes(chrome, href, dens_xpath)  # density
+    BP_xpath = "//section[@id='Boiling-Point']//div[@class='section-content']//div[1]"
+    chemical["BP"] = get_physical_prop(chrome, href, BP_xpath)  # boiling point
+    MP_xpath = "//section[@id='Melting-Point']//div[@class='section-content']//div[1]"
+    chemical["MP"] = get_physical_prop(chrome, href, MP_xpath)  # melting point
+    solu_xpath = "//section[@id='Solubility']//div[@class='section-content']//div[1]"
+    chemical["solubility"] = get_physical_prop(chrome, href, solu_xpath)  # solubility
+    dens_xpath = "//section[@id='Density']//div[@class='section-content']//div[1]"
+    chemical["density"] = get_physical_prop(chrome, href, dens_xpath)  # density
+    description_xpath = "//section[@id='Physical-Description']//div[@class='section-content']//div[1]"
+    # physical properties summary (optional data source)
+    chemical["description"] = get_physical_prop(chrome, href, description_xpath)
     # physical = ", ".join((ordor, BP, MP, solu, dens))
     # print("Physical Properties:")
 
     # 2.2 get hazards properties
     NFPA_pig_xpath = "//section[@id='NFPA-Hazard-Classification']//img[@class='icon']"
-    element = xpath_search(chrome, href, NFPA_pig_xpath)[0]
-    chemical["NFPA_pig"] = element.get_attribute("src")  # the src for the image of NFPA pigment
+    chemical["NFPA_pig"] = get_attributes(chrome, href, NFPA_pig_xpath)  # the src for the image of NFPA pigment
     health_xpath = "//section[@id='Flammability-and-Explosivity']//tr[2]"
     chemical["health_hazards"] = get_attributes(chrome, href, health_xpath)
     fire_xpath = "//section[@id='Flammability-and-Explosivity']//tr[3]"
@@ -137,12 +160,25 @@ def generate_chemical_profile(identifier):
     chemical["eye_first_aid"] = get_attributes(chrome, href, eye_xpath)
     inges_xpath = "//section[@id='Ingestion-First-Aid']//div[@class='section-content-item']"
     chemical["ingestion_first_aid"] = get_attributes(chrome, href, inges_xpath)
+    first_aid_xpath = "//body[@class='lcss']/div[@id='js-rendered-content']/div[@class='relative " \
+                      "flex-container-vertical']/main[@id='main-content']/div[@class='main-width']/div[" \
+                      "@class='table-grid full-width fixed-layout align-top']/div[@class='p-l-top p-l-right " \
+                      "p-xl-bottom']/div[@id='section-container']/section[@id='First-Aid']/div[" \
+                      "@class='section-content']/div[1] "
+    first_aid = get_attributes(chrome, href, first_aid_xpath)
+    if first_aid is not None:
+        chemical["first_aid"] = re.sub("<.*>", "", first_aid)
+    else:
+        chemical["first_aid"] = first_aid
+    print(chemical["first_aid"])
     print(chemical)
 
     # 3. store the dictionary into the MongoDB
     myClient = pymongo.MongoClient("mongodb://localhost:27017/")
     myDb = myClient["my_MSDS"]
     Chemicals = myDb["Chemicals"]
+    print("\n")
+    print(Chemicals.find(chemical).count())
     if Chemicals.find(chemical).count() == 0:  # no replicate data captured
         Chemicals.insert_one(chemical)
     chrome.quit()  # terminate the browser as the search ends
