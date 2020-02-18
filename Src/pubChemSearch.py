@@ -36,7 +36,7 @@ def xpath_search(driver, url, xpath):
     # some webpage elements may not shown at the time it loads.
     # we will wait until it loaded up to 10 seconds
     try:
-        element = WebDriverWait(driver, 5).until(EC.presence_of_all_elements_located((By.XPATH, xpath)))
+        element = WebDriverWait(driver, 1).until(EC.presence_of_all_elements_located((By.XPATH, xpath)))
         return element
     except Exception as e:
         logging.error(traceback.format_exc())
@@ -50,10 +50,12 @@ def get_attributes(browser, url, xpath):
             attribute = element.get_attribute("src")
         # normal case: check if the element is text
         else:
-            if element.text.find("\n"):
+            print(element.text)
+            if element.text.find("\n") != -1:
                 attribute = element.text[:element.text.find("\n")]
             else:
                 attribute = element.text
+            print(attribute)
         return attribute
     except Exception as e:
         logging.error(traceback.format_exc())
@@ -132,11 +134,19 @@ def generate_chemical_profile(identifier):
     chemical["solubility"] = get_physical_prop(chrome, href, solu_xpath)  # solubility
     dens_xpath = "//section[@id='Density']//div[@class='section-content']//div[1]"
     chemical["density"] = get_physical_prop(chrome, href, dens_xpath)  # density
-    description_xpath = "//section[@id='Physical-Description']//div[@class='section-content']//div[1]"
     # physical properties summary (optional data source)
+    description_xpath = "//section[@id='Physical-Description']//div[@class='section-content']//div[1]"
     chemical["description"] = get_physical_prop(chrome, href, description_xpath)
-    # physical = ", ".join((ordor, BP, MP, solu, dens))
-    # print("Physical Properties:")
+    physical_combine = ""
+    physical_combine_list = [("ordor: ", chemical["ordor"]),
+                            ("Boiling Point: ", chemical["BP"]),
+                            ("Melting Point: ", chemical["MP"]),
+                            ("solubility: ", chemical["solubility"]),
+                            ("Density: ", chemical["density"])]
+    for value in physical_combine_list:
+        if value[1] is not None:
+            physical_combine += value[0] + value[1] + ";"
+    chemical["description_combine"] = physical_combine
 
     # 2.2 get hazards properties
     NFPA_pig_xpath = "//section[@id='NFPA-Hazard-Classification']//img[@class='icon']"
@@ -147,9 +157,16 @@ def generate_chemical_profile(identifier):
     chemical["fire_hazards"] = get_attributes(chrome, href, fire_xpath)
     inst_xpath = "//section[@id='Flammability-and-Explosivity']//tr[4]"
     chemical["instability_hazards"] = get_attributes(chrome, href, inst_xpath)
-    # NFPA = health + "\n" + fire + "\n" + inst
-    # print("NFPA Hazards:")
-    # print(NFPA)
+    hazards_xpath = "//section[@id='Toxicity-Summary']//div[@class='section-content-item']"
+    chemical["hazards"] = get_attributes(chrome, href, hazards_xpath)
+    hazards_combine = ""
+    hazards_combine_list = [("health_hazards: ", chemical["health_hazards"]),
+                              ("fire_hazards: ", chemical["fire_hazards"]),
+                              ("instability_hazards: ", chemical["instability_hazards"])]
+    for hazard in hazards_combine_list:
+        if hazard[1] is not None:
+            hazards_combine += hazard[1] + "\n"
+    chemical["hazards_combine"] = hazards_combine
 
     # 2.3 get first aids properties
     inhal_xpath = "//section[@id='Inhalation-First-Aid']//div[@class='section-content-item']"
@@ -170,7 +187,16 @@ def generate_chemical_profile(identifier):
         chemical["first_aid"] = re.sub("<.*>", "", first_aid)
     else:
         chemical["first_aid"] = first_aid
-    print(chemical["first_aid"])
+    # set first_aid_combine
+    first_aid_combine = ""
+    first_aid_combine_list = [("inhalation: ", chemical["inhalation_first_aid"]),
+                              ("skin: ", chemical["skin_first_aid"]),
+                              ("eye: ", chemical["eye_first_aid"]),
+                              ("ingestion: ", chemical["ingestion_first_aid"])]
+    for item in first_aid_combine_list:
+        if item[1] is not None:
+            first_aid_combine += item[0] + item[1] + "\n"
+    chemical["first_aid_combine"] = first_aid_combine
     print(chemical)
 
     # 3. store the dictionary into the MongoDB
