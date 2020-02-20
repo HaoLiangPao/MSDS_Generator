@@ -42,6 +42,27 @@ def xpath_search(driver, url, xpath):
         logging.error(traceback.format_exc())
 
 
+def get_attributes_GHS(browser, url, xpath, pigment):
+    try:
+        pigments = []
+        attributes = []
+        element = xpath_search(browser, url, xpath)[0]
+        # get src for the pigment picture
+        if pigment is True:
+            pigments.append(element.get_attribute("src"))
+            attributes.append(element.get_attribute("alt"))
+            try:
+                xpath = xpath[:-10] + "2" + xpath[-10 + 1:]
+            except Exception as e:
+                logging.error(traceback.format_exc())
+                print("No more pigments are available", xpath)
+                return None
+        return attributes
+    except Exception as e:
+        logging.error(traceback.format_exc())
+        print("The attribute corresponding to this xpath does not existed.", xpath)
+        return None
+
 def get_attributes(browser, url, xpath):
     try:
         element = xpath_search(browser, url, xpath)[0]
@@ -50,12 +71,12 @@ def get_attributes(browser, url, xpath):
             attribute = element.get_attribute("src")
         # normal case: check if the element is text
         else:
-            print(element.text)
+            # print(element.text)
             if element.text.find("\n") != -1:
                 attribute = element.text[:element.text.find("\n")]
             else:
                 attribute = element.text
-            print(attribute)
+            # print(attribute)
         return attribute
     except Exception as e:
         logging.error(traceback.format_exc())
@@ -145,10 +166,11 @@ def generate_chemical_profile(identifier):
                             ("Density: ", chemical["density"])]
     for value in physical_combine_list:
         if value[1] is not None:
-            physical_combine += value[0] + value[1] + ";"
+            physical_combine += value[0] + value[1] + ";\n"
     chemical["description_combine"] = physical_combine
 
     # 2.2 get hazards properties
+    # NFPA
     NFPA_pig_xpath = "//section[@id='NFPA-Hazard-Classification']//img[@class='icon']"
     chemical["NFPA_pig"] = get_attributes(chrome, href, NFPA_pig_xpath)  # the src for the image of NFPA pigment
     health_xpath = "//section[@id='Flammability-and-Explosivity']//tr[2]"
@@ -167,6 +189,9 @@ def generate_chemical_profile(identifier):
         if hazard[1] is not None:
             hazards_combine += hazard[1] + "\n"
     chemical["hazards_combine"] = hazards_combine
+    # GHS
+    GHS_pigment_xpath = "//div[@class='section-content-item']//div[2]//img[1]"
+    chemical["GHS_pigment"] = get_attributes_GHS(chrome, href, GHS_pigment_xpath, True)
 
     # 2.3 get first aids properties
     inhal_xpath = "//section[@id='Inhalation-First-Aid']//div[@class='section-content-item']"
