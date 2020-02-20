@@ -36,7 +36,7 @@ def xpath_search(driver, url, xpath):
     # some webpage elements may not shown at the time it loads.
     # we will wait until it loaded up to 10 seconds
     try:
-        element = WebDriverWait(driver, 1).until(EC.presence_of_all_elements_located((By.XPATH, xpath)))
+        element = WebDriverWait(driver, 2).until(EC.presence_of_all_elements_located((By.XPATH, xpath)))
         return element
     except Exception as e:
         logging.error(traceback.format_exc())
@@ -46,22 +46,20 @@ def get_attributes_GHS(browser, url, xpath, pigment):
     try:
         pigments = []
         attributes = []
-        element = xpath_search(browser, url, xpath)[0]
-        # get src for the pigment picture
-        if pigment is True:
-            pigments.append(element.get_attribute("src"))
-            attributes.append(element.get_attribute("alt"))
-            try:
-                xpath = xpath[:-10] + "2" + xpath[-10 + 1:]
-            except Exception as e:
-                logging.error(traceback.format_exc())
-                print("No more pigments are available", xpath)
-                return None
+        elements = xpath_search(browser, url, xpath)
+        for element in elements:
+            # get src for the pigment picture
+            if pigment is True:  # collecting pigment information
+                pigments.append(element.get_attribute("src"))
+                attributes.append(element.get_attribute("alt"))
+            else:
+                attributes = re.sub("<.*>", "", element.text)  # remove the href links
         return attributes
     except Exception as e:
         logging.error(traceback.format_exc())
         print("The attribute corresponding to this xpath does not existed.", xpath)
         return None
+
 
 def get_attributes(browser, url, xpath):
     try:
@@ -160,17 +158,17 @@ def generate_chemical_profile(identifier):
     chemical["description"] = get_physical_prop(chrome, href, description_xpath)
     physical_combine = ""
     physical_combine_list = [("ordor: ", chemical["ordor"]),
-                            ("Boiling Point: ", chemical["BP"]),
-                            ("Melting Point: ", chemical["MP"]),
-                            ("solubility: ", chemical["solubility"]),
-                            ("Density: ", chemical["density"])]
+                             ("Boiling Point: ", chemical["BP"]),
+                             ("Melting Point: ", chemical["MP"]),
+                             ("solubility: ", chemical["solubility"]),
+                             ("Density: ", chemical["density"])]
     for value in physical_combine_list:
         if value[1] is not None:
             physical_combine += value[0] + value[1] + ";\n"
     chemical["description_combine"] = physical_combine
 
     # 2.2 get hazards properties
-    # NFPA
+    # # NFPA
     NFPA_pig_xpath = "//section[@id='NFPA-Hazard-Classification']//img[@class='icon']"
     chemical["NFPA_pig"] = get_attributes(chrome, href, NFPA_pig_xpath)  # the src for the image of NFPA pigment
     health_xpath = "//section[@id='Flammability-and-Explosivity']//tr[2]"
@@ -183,15 +181,19 @@ def generate_chemical_profile(identifier):
     chemical["hazards"] = get_attributes(chrome, href, hazards_xpath)
     hazards_combine = ""
     hazards_combine_list = [("health_hazards: ", chemical["health_hazards"]),
-                              ("fire_hazards: ", chemical["fire_hazards"]),
-                              ("instability_hazards: ", chemical["instability_hazards"])]
+                            ("fire_hazards: ", chemical["fire_hazards"]),
+                            ("instability_hazards: ", chemical["instability_hazards"])]
     for hazard in hazards_combine_list:
         if hazard[1] is not None:
             hazards_combine += hazard[1] + "\n"
     chemical["hazards_combine"] = hazards_combine
     # GHS
-    GHS_pigment_xpath = "//div[@class='section-content-item']//div[2]//img[1]"
+    GHS_pigment_xpath = "//th[text()='Pictogram(s)']/following-sibling::td/div/div/img"
     chemical["GHS_pigment"] = get_attributes_GHS(chrome, href, GHS_pigment_xpath, True)
+    GHS_hazards_xpath = "//th[text()='GHS Hazard Statements']/following-sibling::td"
+    chemical["GHS_hazard"] = get_attributes_GHS(chrome, href, GHS_hazards_xpath, False)
+    GHS_precaution_xpath = "//th[text()='Precautionary Statement Codes']/following-sibling::td"
+    chemical["GHS_precaution"] = get_attributes_GHS(chrome, href, GHS_precaution_xpath, False)
 
     # 2.3 get first aids properties
     inhal_xpath = "//section[@id='Inhalation-First-Aid']//div[@class='section-content-item']"
